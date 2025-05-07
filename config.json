@@ -1,0 +1,22 @@
+{
+  "kraken_api_key": "YOUR_KRAKEN_API_KEY",
+  "kraken_api_secret": "YOUR_KRAKEN_API_SECRET",
+  "withdraw_keys": {
+    "XBT": "YOUR_KRAKEN_WITHDRAW_KEY",
+    "ETH": "YOUR_KRAKEN_WITHDRAW_KEY",
+    "SOL": "YOUR_KRAKEN_WITHDRAW_KEY"
+  },
+  "initial_usd": 1000.0,
+  "assets": ["XBT", "ETH", "SOL"],
+  "grid_levels": 3,
+  "stop_loss_pct": 0.15,
+  "withdraw_usd": 500.0,
+  "withdraw_reserve": 0.0,
+  "rsi_gate": 50.0,
+  "rsi_slack": 10.0,
+  "base_ma_lookback": 50,
+  "atr_lookback": 14,
+  "min_ttl_sec": 30,
+  "max_ttl_sec": 1200,
+  "discord_webhook": "YOUR_DISCORD_WEBHOOK"
+}
