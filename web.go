@@ -57,7 +57,7 @@ func startWebServer() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	log.Println("[WEB] starting dashboard server on http://127.0.0.1:8080")
+	log.Println("[WEB] Dashboard Started on http://localhost:8080")
 	if err := srv.ListenAndServe(); err != nil {
 		log.Printf("[WEB ERROR] %v", err)
 	}
