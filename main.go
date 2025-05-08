@@ -1156,7 +1156,7 @@ func runAsset(ctx context.Context, asset string) {
 			case <-fast.C:
 				// 1 min poll to keep existing grid “live”
 				go func() {
-					if p, err := kraken.GetTickerMid(asset); err == nil {
+					if _, err := kraken.GetTickerMid(asset); err == nil {
 						//log.Printf("[%s] pulse price %.4f", asset, p)
 					}
 				}()
