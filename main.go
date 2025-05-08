@@ -633,6 +633,20 @@ func fetchHistory(asset string, bars int) (prices, vols []float64, err error) {
 	return prices, vols, nil
 }
 
+// computeEMA computes the Exponential Moving Average of `series` over `period` bars.
+func computeEMA(series []float64, period int) float64 {
+	if len(series) < period || period <= 0 {
+		return 0
+	}
+	k := 2.0 / (float64(period) + 1.0)
+	// seed the EMA with the first element
+	ema := series[0]
+	for _, v := range series[1:] {
+		ema = v*k + ema*(1.0-k)
+	}
+	return ema
+}
+
 // runAsset: endless snowball cycles
 func runAsset(ctx context.Context, asset string) {
 	//log.Printf("[%s] ▶ runAsset started", asset)
@@ -793,25 +807,26 @@ func runAsset(ctx context.Context, asset string) {
 		}
 
 		// ── 1d) Multi-TF + Adaptive Trend Filter ───────────────────────────────
+
 		// 1d-i) 15-minute down-leg guard
 		{
 			since15 := time.Now().Add(-30 * time.Minute).Unix()
-			bars15, err := kraken.GetOHLC(asset, 15, since15)
-			if err != nil || len(bars15) < 2 {
+			b15, err := kraken.GetOHLC(asset, 15, since15)
+			if err != nil || len(b15) < 2 {
 				log.Printf("[%s] ERROR fetching 15m OHLC: %v", asset, err)
 				time.Sleep(cycleDelay)
 				continue
 			}
-			c0 := bars15[len(bars15)-1][3]
-			c1 := bars15[len(bars15)-2][3]
+			c0 := b15[len(b15)-1][3]
+			c1 := b15[len(b15)-2][3]
 			if (c0-c1)/c1 < 0 {
-				log.Printf("[%s] 15m downtrend detected (%.5f) – skip", asset, (c0-c1)/c1)
+				log.Printf("[%s] 15m downtrend (%.5f) – skip", asset, (c0-c1)/c1)
 				time.Sleep(cycleDelay)
 				continue
 			}
 		}
 
-		// 1d-ii) 5-minute MA slope + adaptive threshold + EMA momentum
+		// 1d-ii) 5-min MA slope + adaptive threshold
 		maLB := int(float64(cfg.BaseMALookback) * (1 + volFactor))
 		if maLB < 2 {
 			maLB = 2
@@ -824,24 +839,22 @@ func runAsset(ctx context.Context, asset string) {
 			time.Sleep(cycleDelay)
 			continue
 		}
-		// extract closes
-		prices5 := make([]float64, len(ohlc5))
+		pr5 := make([]float64, len(ohlc5))
 		for i, b := range ohlc5 {
-			prices5[i] = b[3]
+			pr5[i] = b[3]
 		}
 
-		// a) compute MA slopePct
-		maCur := movingAverage(prices5[len(prices5)-maLB:], maLB)
-		maPrev := movingAverage(prices5[len(prices5)-maLB-1:len(prices5)-1], maLB)
+		maCur := movingAverage(pr5[len(pr5)-maLB:], maLB)
+		maPrev := movingAverage(pr5[len(pr5)-maLB-1:len(pr5)-1], maLB)
 		slopePct := (maCur - maPrev) / maPrev
 
-		// b) dynamic slope threshold (10th percentile of recent slopes)
 		h := slopeHistory[asset]
 		h = append(h, slopePct)
 		if len(h) > historyLen {
 			h = h[len(h)-historyLen:]
 		}
 		slopeHistory[asset] = h
+
 		th := percentile(h, 10)
 		log.Printf("[%s] slope=%.5f pct10=%.5f", asset, slopePct, th)
 		if slopePct < th {
@@ -850,10 +863,10 @@ func runAsset(ctx context.Context, asset string) {
 			continue
 		}
 
-		// c) EMA momentum filter: require EMA(5) ≥ EMA(15)
-		if len(prices5) >= momentumLong {
-			emaS := computeEMA(prices5[len(prices5)-momentumShort:], momentumShort)
-			emaL := computeEMA(prices5[len(prices5)-momentumLong:], momentumLong)
+		// 1d-iii) EMA momentum (optional)
+		if len(pr5) >= momentumLong {
+			emaS := computeEMA(pr5[len(pr5)-momentumShort:], momentumShort)
+			emaL := computeEMA(pr5[len(pr5)-momentumLong:], momentumLong)
 			if emaS < emaL {
 				log.Printf("[%s] EMA momentum down (%.4f<%.4f) – skip", asset, emaS, emaL)
 				time.Sleep(cycleDelay)
@@ -914,7 +927,7 @@ func runAsset(ctx context.Context, asset string) {
 		// 3) Build DCA grid (volatility-scaled)
 		// ── GRID DEBUG: we’ve passed all filters, now entering placement ──
 		log.Printf("[GRID][%s] passed filters; entering grid‑placement", asset)
-		since = time.Now().Add(-250 * time.Minute).Unix()
+		since := time.Now().Add(-250 * time.Minute).Unix()
 		ohlc, err := kraken.GetOHLC(asset, 5, since)
 		if err != nil {
 			notify.Send(fmt.Sprintf("[%s] OHLC for stddev failed: %v", asset, err))
@@ -1028,7 +1041,7 @@ func runAsset(ctx context.Context, asset string) {
 		}
 
 		// ── DEBUG: log MA & grid definitions ────────────────────────────────
-		log.Printf("[DEBUG][%s] MA_lookback=%d MA=%.4f stepPct=%.4f", asset, maLB, ma, stepPct)
+		log.Printf("[DEBUG][%s] MA_lookback=%d MA=%.4f stepPct=%.4f", asset, maLB, maCur, stepPct)
 		for i, t := range targets {
 			log.Printf("[DEBUG][%s] leg %d: target=%.4f vol=%.6f", asset, i+1, t, volumes[i])
 		}
