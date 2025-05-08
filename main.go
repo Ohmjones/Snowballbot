@@ -695,7 +695,15 @@ func runAsset(ctx context.Context, asset string) {
 			time.Sleep(cycleDelay)
 			continue
 		}
-		usdAlloc := usable / float64(len(cfg.Assets))
+		usdAlloc := usable / float64(len(cfg.Assets)) // base split
+		stateMu.Lock()
+		if extra, ok := state.AssetUSDReserve[asset]; ok {
+			usdAlloc += extra
+			state.AssetUSDReserve[asset] = 0 // consume it this cycle
+		}
+		_ = saveStateUnlocked(state)
+		stateMu.Unlock()
+
 		// ——— Order-book imbalance tertiary filter ———
 		bids, asks, err := kraken.GetOrderBook(asset, 10)
 		if err != nil {
@@ -1258,7 +1266,6 @@ func withdrawLoop(ctx context.Context) {
 	}
 }
 
-// recordProfit updates in-memory profits and persists them to state.json
 func recordProfit(asset string, usd float64) {
 	mtx.Lock()
 	defer mtx.Unlock()
@@ -1267,7 +1274,11 @@ func recordProfit(asset string, usd float64) {
 	profits[asset] += usd
 
 	// 2) mirror into your persistent state
-	state.ProfitCumulative[asset] = profits[asset]
+	stateMu.Lock()
+	state.ProfitCumulative[asset] += usd
+	state.AssetUSDReserve[asset] += usd
+	_ = saveStateUnlocked(state)
+	stateMu.Unlock()
 
 	// 3) write state.json so it survives a restart
 	if err := saveStateUnlocked(state); err != nil {
