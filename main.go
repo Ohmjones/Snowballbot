@@ -545,7 +545,7 @@ func fetchHistory(asset string, bars int) (prices, vols []float64, err error) {
 
 // runAsset: endless snowball cycles
 func runAsset(ctx context.Context, asset string) {
-	log.Printf("[%s] runAsset started", asset)
+	log.Printf("[%s] ▶ runAsset started", asset)
 	cycleDelay := 5 * time.Minute
 
 	// declare once so the whole function sees them
@@ -566,10 +566,13 @@ func runAsset(ctx context.Context, asset string) {
 	const maxVolF = 3.0
 	warm := int(float64(cfg.BaseMALookback)*(1+maxVolF)) + cfg.ATRLookback
 
+	log.Printf("[%s] ▶ bootstrap: calling fetchHistory(asset=%q, warm=%d)", asset, asset, warm)
 	prices, vols, err := fetchHistory(asset, warm)
 	if err != nil {
-		log.Fatalf("[%s] bootstrap history: %v", asset, err)
+		log.Printf("[%s] ❌ fetchHistory error: %v", asset, err)
+		return
 	}
+	log.Printf("[%s] ✅ fetchHistory returned %d prices, %d vols", asset, len(prices), len(vols))
 
 	state.PriceHistory[asset] = prices
 	state.VolHistory[asset] = vols
@@ -582,7 +585,7 @@ func runAsset(ctx context.Context, asset string) {
 		default:
 		}
 
-		//log.Printf("[CYCLE][%s] starting new cycle at %s", asset, time.Now().Format(time.RFC3339))
+		log.Printf("[CYCLE][%s] starting new cycle at %s", asset, time.Now().Format(time.RFC3339))
 		// 1) Fetch price from cache (fallback to Kraken on miss)
 		var price float64
 		priceCache.RLock()
@@ -590,25 +593,27 @@ func runAsset(ctx context.Context, asset string) {
 		priceCache.RUnlock()
 		if ok && p > 0 {
 			price = p
+			log.Printf("[%s] ← priceCache hit: %.4f", asset, price)
 		} else {
-			//log.Printf("[%s] price cache miss, falling back to Kraken", asset)
+			log.Printf("[%s] ▶ priceCache miss → calling kraken.GetTickerMid", asset)
 			var err error
 			if price, err = kraken.GetTickerMid(asset); err != nil {
-				log.Printf("[%s] Kraken ticker failed: %v", asset, err)
+				log.Printf("[%s] ⚠️ Kraken.GetTickerMid failed: %v", asset, err)
 				time.Sleep(cycleDelay)
 				continue
 			}
+			log.Printf("[%s] ← Kraken.GetTickerMid returned price=%.4f", asset, price)
 		}
 
 		// 1b) Fetch ATR & RSI
 		var atr, rsi float64
-		log.Printf("[%s] ⚠️ starting cgATR retry...", asset)
+		log.Printf("[%s] ▶ about to retry cgATR", asset)
 		if err := retry(3, 2*time.Second, func() error {
 			var e error
 			atr, rsi, e = cgATR(asset, 14)
 			return e
 		}); err != nil {
-			log.Printf("[%s] ⚠️ cgATR failed, entering fallback: %v", asset, err)
+			//log.Printf("[%s] ⚠️ cgATR failed, entering fallback: %v", asset, err)
 			since := time.Now().Add(-24 * time.Hour).Unix()
 			ohlc, err := kraken.GetOHLC(asset, 5, since)
 			if err != nil {
@@ -616,7 +621,7 @@ func runAsset(ctx context.Context, asset string) {
 				time.Sleep(cycleDelay)
 				continue
 			}
-			log.Printf("[%s] ✅ got ATR=%.4f RSI=%.2f", asset, atr, rsi)
+			//log.Printf("[%s] ✅ got ATR=%.4f RSI=%.2f", asset, atr, rsi)
 
 			// compute True-Range ATR and RSI
 			atr = computeATRFromOHLC(ohlc, 14)
