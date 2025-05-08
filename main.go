@@ -944,7 +944,9 @@ func runAsset(ctx context.Context, asset string) {
 					continue
 				}
 				if time.Since(startT[oid]) > orderTO {
-					// stale: cancel and drop
+					log.Printf("[%s] checking age of order %s — placed at %v, age = %v, ttl = %v",
+						asset, oid, startT[oid], time.Since(startT[oid]), orderTO)
+
 					_ = kraken.CancelOrder(oid)
 					notify.Send(fmt.Sprintf("[%s] canceled stale %s", asset, oid))
 					delete(startT, oid)
@@ -952,7 +954,6 @@ func runAsset(ctx context.Context, asset string) {
 					delete(prevNot, oid)
 					continue
 				}
-
 				next = append(next, oid)
 			}
 			oids = next
