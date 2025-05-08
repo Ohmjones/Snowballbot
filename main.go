@@ -474,6 +474,9 @@ func main() {
 	signal.Notify(sig, os.Interrupt)
 	go func() { <-sig; cancel() }()
 
+	// 5a) Start Webserver localhost:8080
+	go startWebServer()
+
 	// 6) Launch asset runners + loops
 	var wg sync.WaitGroup
 	for _, asset := range cfg.Assets {
