@@ -592,7 +592,7 @@ func runAsset(ctx context.Context, asset string) {
 
 	// ---------- BOOTSTRAP HISTORY ----------
 	const maxVolF = 3.0
-	warm := int(float64(cfg.BaseMALookback)*(1+maxVolF)) + cfg.ATRLookback
+	//warm := int(float64(cfg.BaseMALookback)*(1+maxVolF)) + cfg.ATRLookback
 
 	//log.Printf("[%s] ▶ bootstrap: calling fetchHistory(asset=%q, warm=%d)", asset, asset, warm)
 	bootstrapBars := 7 * 24 * 60 / 5
