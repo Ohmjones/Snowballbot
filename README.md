@@ -38,7 +38,7 @@ A high-frequency DCA grid trading bot for Kraken, with Coingecko-based indicator
 sudo apt update && sudo apt install -y golang-go git
 
 # Clone your repo
-git clone https://github.com/your-org/snowballin.git
+git clone https://github.com/Ohmjones/Snowballbot.git /home/ubuntu/snowballin
 cd snowballin
 
 # Build the binary
