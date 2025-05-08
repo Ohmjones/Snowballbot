@@ -602,11 +602,13 @@ func runAsset(ctx context.Context, asset string) {
 
 		// 1b) Fetch ATR & RSI
 		var atr, rsi float64
+		log.Printf("[%s] ⚠️ starting cgATR retry...", asset)
 		if err := retry(3, 2*time.Second, func() error {
 			var e error
 			atr, rsi, e = cgATR(asset, 14)
 			return e
 		}); err != nil {
+			log.Printf("[%s] ⚠️ cgATR failed, entering fallback: %v", asset, err)
 			since := time.Now().Add(-24 * time.Hour).Unix()
 			ohlc, err := kraken.GetOHLC(asset, 5, since)
 			if err != nil {
@@ -614,6 +616,8 @@ func runAsset(ctx context.Context, asset string) {
 				time.Sleep(cycleDelay)
 				continue
 			}
+			log.Printf("[%s] ✅ got ATR=%.4f RSI=%.2f", asset, atr, rsi)
+
 			// compute True-Range ATR and RSI
 			atr = computeATRFromOHLC(ohlc, 14)
 			closes := make([]float64, len(ohlc))
