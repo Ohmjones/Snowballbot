@@ -3,21 +3,29 @@
 <head>
     <meta charset="UTF-8" />
     <title>Snowballin' Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Semantic UI + Chart.js -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        body { padding: 2em; }
-        .chart-box { margin-bottom: 3em; }
-    </style>
+
+    <!-- Optional: Pull in external style.css -->
+    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<h2 class="ui header">Snowballin' Performance Dashboard</h2>
-<div class="ui buttons">
-    <button class="ui button" onclick="setRange('7d')">7d</button>
-    <button class="ui button" onclick="setRange('30d')">30d</button>
-    <button class="ui button" onclick="setRange('lifetime')">Lifetime</button>
+<div class="ui container" style="margin-top: 2em;">
+    <h2 class="ui center aligned header">📈 Snowballin' Performance Dashboard</h2>
+
+    <div class="ui center aligned segment">
+        <div class="ui buttons">
+            <button class="ui button" onclick="setRange('7d')">7d</button>
+            <button class="ui button" onclick="setRange('30d')">30d</button>
+            <button class="ui button" onclick="setRange('lifetime')">Lifetime</button>
+        </div>
+    </div>
+
+    <div id="charts" class="ui three stackable cards"></div>
 </div>
-<div id="charts" class="ui section"></div>
 
 <script src="dashboard.js"></script>
 </body>

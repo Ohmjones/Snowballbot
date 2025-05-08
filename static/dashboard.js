@@ -14,18 +14,22 @@ function loadCharts() {
             const container = document.getElementById('charts');
             container.innerHTML = ''; // Clear
             charts = {};
-            cfg.assets.forEach(asset => createChartForAsset(container, asset));
+            cfg.assets.forEach(asset => createChartCard(container, asset));
         });
 }
 
-function createChartForAsset(container, asset) {
-    const box = document.createElement('div');
-    box.className = 'chart-box';
-    box.innerHTML = `
-    <h3 class="ui dividing header">${asset}</h3>
-    <canvas id="chart-${asset}" width="800" height="300"></canvas>
+function createChartCard(container, asset) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+    <div class="content">
+      <div class="header">${asset}</div>
+    </div>
+    <div class="content">
+      <canvas id="chart-${asset}"></canvas>
+    </div>
   `;
-    container.appendChild(box);
+    container.appendChild(card);
 
     fetch(`/api/metrics?asset=${asset}&range=${currentRange}`)
         .then(r => r.json())
@@ -59,6 +63,7 @@ function createChartForAsset(container, asset) {
                 },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     scales: {
                         y: { type: 'linear', position: 'left' },
                         y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false } }
