@@ -27,7 +27,8 @@ type State struct {
 	VolHistory   map[string][]float64 `json:"vol_history"`
 
 	// ✅ NEW – TTL tracking: orderID → Unix timestamp
-	OrderStartT map[string]int64 `json:"order_start_t"`
+	OrderStartT     map[string]int64   `json:"order_start_t"`
+	AssetUSDReserve map[string]float64 `json:"asset_usd_reserve"`
 }
 
 // a mutex so concurrent goroutines can safely call SaveState()
@@ -80,6 +81,9 @@ func LoadState() (*State, error) {
 	}
 	if s.OrderStartT == nil {
 		s.OrderStartT = make(map[string]int64)
+	}
+	if s.AssetUSDReserve == nil {
+		s.AssetUSDReserve = make(map[string]float64)
 	}
 	return &s, nil
 }
