@@ -604,6 +604,22 @@ func runAsset(ctx context.Context, asset string) {
 
 	state.PriceHistory[asset] = prices
 	state.VolHistory[asset] = vols
+	// ── PRE-FILL RSI HISTORY from bootstrap prices ────────────────────────
+	{
+		closes := state.PriceHistory[asset]
+		hist := make([]float64, 0, historyLen)
+		period := cfg.ATRLookback
+		// build initial RSI history from the most recent bars
+		for i := period; i < len(closes); i++ {
+			window := closes[i-period : i]  // last `period` closes
+			r := computeRSI(window, period) // reuse your existing RSI fn
+			hist = append(hist, r)
+			if len(hist) >= historyLen {
+				break
+			}
+		}
+		rsiHistory[asset] = hist
+	}
 	// ---------- END BOOTSTRAP --------------
 
 	for {
