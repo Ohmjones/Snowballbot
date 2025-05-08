@@ -293,28 +293,23 @@ func main() {
 			log.Printf("[MAIN] order %s already %s → pruning", oid, status)
 		}
 	}
+
 	stateMu.Lock()
 	state.OpenOrders = reconciled
 	openOrders = reconciled
-	if err := saveStateUnlocked(state); err != nil {
-		log.Printf("warning: failed to persist reconciled state: %v", err)
+
+	// ✅ Hydrate all nil maps in state (critical for runAsset stability)
+	if state.AvgEntry == nil {
+		state.AvgEntry = make(map[string]float64)
 	}
-	stateMu.Unlock()
-	avgEntry = state.AvgEntry
-	if avgEntry == nil {
-		avgEntry = make(map[string]float64)
+	if state.PositionVol == nil {
+		state.PositionVol = make(map[string]float64)
 	}
-	positionVol = state.PositionVol
-	if positionVol == nil {
-		positionVol = make(map[string]float64)
+	if state.ProfitCumulative == nil {
+		state.ProfitCumulative = make(map[string]float64)
 	}
-	profitCum = state.ProfitCumulative
-	if profitCum == nil {
-		profitCum = make(map[string]float64)
-	}
-	cycleState = state.CycleState
-	if cycleState == nil {
-		cycleState = make(map[string]string)
+	if state.CycleState == nil {
+		state.CycleState = make(map[string]string)
 	}
 	if state.PriceHistory == nil {
 		state.PriceHistory = make(map[string][]float64)
@@ -322,8 +317,24 @@ func main() {
 	if state.VolHistory == nil {
 		state.VolHistory = make(map[string][]float64)
 	}
+	if state.OrderStartT == nil {
+		state.OrderStartT = make(map[string]int64)
+	}
+	if state.AssetUSDReserve == nil {
+		state.AssetUSDReserve = make(map[string]float64)
+	}
+	if err := saveStateUnlocked(state); err != nil {
+		log.Printf("warning: failed to persist reconciled state: %v", err)
+	}
+	stateMu.Unlock()
 
-	/* hydrate profits → profits map */
+	// ✅ assign globally-accessed maps
+	avgEntry = state.AvgEntry
+	positionVol = state.PositionVol
+	profitCum = state.ProfitCumulative
+	cycleState = state.CycleState
+
+	// ✅ hydrate profits → profits map
 	profits = make(map[string]float64, len(state.ProfitCumulative))
 	for asset, p := range state.ProfitCumulative {
 		profits[asset] = p
@@ -362,7 +373,7 @@ func main() {
 		}()
 		startWebServer()
 	}()
-	
+
 	// refresh once every 24h in background
 	go func() {
 		t := time.NewTicker(24 * time.Hour)
@@ -484,11 +495,15 @@ func main() {
 	// 6) Launch asset runners + loops
 	var wg sync.WaitGroup
 	for _, asset := range cfg.Assets {
-		// DEBUG: confirm we are launching each runner goroutine
 		log.Printf("[MAIN] launching runAsset for %s", asset)
 		wg.Add(1)
 		go func(a string) {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[PANIC] runAsset for %s crashed: %v", a, r)
+				}
+			}()
 			runAsset(ctx, a)
 		}(asset)
 	}
@@ -530,6 +545,7 @@ func fetchHistory(asset string, bars int) (prices, vols []float64, err error) {
 
 // runAsset: endless snowball cycles
 func runAsset(ctx context.Context, asset string) {
+	log.Printf("[%s] runAsset started", asset)
 	cycleDelay := 5 * time.Minute
 
 	// declare once so the whole function sees them
