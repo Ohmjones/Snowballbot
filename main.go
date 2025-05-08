@@ -531,6 +531,14 @@ func runAsset(ctx context.Context, asset string) {
 		posVol     float64
 	)
 
+	// Rehydrate any persisted start times for TTL tracking
+	startT := make(map[string]time.Time)
+	stateMu.Lock()
+	for oid, ts := range state.OrderStartT {
+		startT[oid] = time.Unix(ts, 0)
+	}
+	stateMu.Unlock()
+
 	// ---------- BOOTSTRAP HISTORY ----------
 	const maxVolF = 3.0
 	warm := int(float64(cfg.BaseMALookback)*(1+maxVolF)) + cfg.ATRLookback
@@ -888,9 +896,14 @@ func runAsset(ctx context.Context, asset string) {
 		// collect orders that fill normally so we can prune them later
 		closedOIDs := make([]string, 0, len(oids))
 
+		now := time.Now()
+		stateMu.Lock()
 		for _, oid := range oids {
-			startT[oid] = time.Now()
+			startT[oid] = now
+			state.OrderStartT[oid] = now.Unix()
 		}
+		_ = saveStateUnlocked(state)
+		stateMu.Unlock()
 
 		filledP := []float64{}
 		filledV := []float64{}
@@ -939,6 +952,10 @@ func runAsset(ctx context.Context, asset string) {
 					// normally filled: mark for pruning
 					closedOIDs = append(closedOIDs, oid)
 					delete(startT, oid)
+					stateMu.Lock()
+					delete(state.OrderStartT, oid)
+					_ = saveStateUnlocked(state)
+					stateMu.Unlock()
 					delete(prevVol, oid)
 					delete(prevNot, oid)
 					continue
@@ -950,6 +967,10 @@ func runAsset(ctx context.Context, asset string) {
 					_ = kraken.CancelOrder(oid)
 					notify.Send(fmt.Sprintf("[%s] canceled stale %s", asset, oid))
 					delete(startT, oid)
+					stateMu.Lock()
+					delete(state.OrderStartT, oid)
+					_ = saveStateUnlocked(state)
+					stateMu.Unlock()
 					delete(prevVol, oid)
 					delete(prevNot, oid)
 					continue

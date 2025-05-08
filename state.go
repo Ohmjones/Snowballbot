@@ -25,6 +25,9 @@ type State struct {
 	// NEW – lets you reuse historical bars between cycles
 	PriceHistory map[string][]float64 `json:"price_history"`
 	VolHistory   map[string][]float64 `json:"vol_history"`
+
+	// ✅ NEW – TTL tracking: orderID → Unix timestamp
+	OrderStartT map[string]int64 `json:"order_start_t"`
 }
 
 // a mutex so concurrent goroutines can safely call SaveState()
@@ -46,7 +49,10 @@ func SaveState(s *State) error {
 // LoadState tries to read stateFile; if missing, returns zero-State.
 func LoadState() (*State, error) {
 	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
-		return &State{NonceCounter: time.Now().UnixNano()}, nil
+		return &State{
+			NonceCounter: time.Now().UnixNano(),
+			OrderStartT:  make(map[string]int64),
+		}, nil
 	}
 	data, err := ioutil.ReadFile(stateFile)
 	if err != nil {
@@ -56,7 +62,7 @@ func LoadState() (*State, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
 	}
-	// ensure all maps are non-nil so lookups won’t panic
+	// ensure all maps are non-nil
 	if s.NonceCounter == 0 {
 		s.NonceCounter = time.Now().UnixNano()
 	}
@@ -72,6 +78,8 @@ func LoadState() (*State, error) {
 	if s.CycleState == nil {
 		s.CycleState = make(map[string]string)
 	}
-
+	if s.OrderStartT == nil {
+		s.OrderStartT = make(map[string]int64)
+	}
 	return &s, nil
 }
