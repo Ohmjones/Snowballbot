@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -95,6 +96,8 @@ var (
 		vwapCycles  int
 		vwapFills   int
 	}
+	rsiHistory = make(map[string][]float64)
+	historyLen = 100 // Keep the last 100 RSI values per asset
 )
 
 // global price cache, updated in batch
@@ -102,6 +105,20 @@ var priceCache = struct {
 	sync.RWMutex
 	data map[string]float64
 }{data: make(map[string]float64)}
+
+// percentile returns the p-th percentile of xs (0 < p < 100)
+func percentile(xs []float64, p int) float64 {
+	if len(xs) == 0 {
+		return math.NaN()
+	}
+	dup := append([]float64(nil), xs...)
+	sort.Float64s(dup)
+	idx := (p * len(dup)) / 100
+	if idx >= len(dup) {
+		idx = len(dup) - 1
+	}
+	return dup[idx]
+}
 
 func recoverOpenPositions(assets []string) {
 	log.Println("[BOOT] recovering open positions from Kraken…")
@@ -671,11 +688,29 @@ func runAsset(ctx context.Context, asset string) {
 			volFactor = 2.5
 		}
 
-		dynRSIGate := cfg.RSIGate + (1.0-volFactor)*cfg.RSISlack
+		/*dynRSIGate := cfg.RSIGate + (1.0-volFactor)*cfg.RSISlack
 		// ── DEBUG: log price, ATR, RSI, volFactor & dynRSIGate ─────────────
 		log.Printf("[DEBUG][%s] price=%.4f ATR=%.4f RSI=%.2f volF=%.2f dynRSI=%.2f", asset, price, atr, rsi, volFactor, dynRSIGate)
 		if rsi > dynRSIGate {
 			log.Printf("[%s] RSI %.1f > dynGate %.1f (volFactor %.2f) – skip", asset, rsi, dynRSIGate, volFactor)
+			time.Sleep(cycleDelay)
+			continue
+		}*/
+
+		// ── UPDATE RSI HISTORY ────────────────────────────────────────────────
+		hist := rsiHistory[asset]
+		hist = append(hist, rsi)
+		if len(hist) > historyLen {
+			hist = hist[len(hist)-historyLen:]
+		}
+		rsiHistory[asset] = hist
+
+		// ── DYNAMIC RSI GATE via 20th percentile ──────────────────────────────
+		gate := percentile(rsiHistory[asset], 20) // dynamically finds sweet spot
+		log.Printf("[%s] dynamic RSI gate (20th pct) = %.2f", asset, gate)
+
+		if rsi > gate {
+			log.Printf("[%s] RSI %.2f > gate %.2f (adaptive) – skip cycle", asset, rsi, gate)
 			time.Sleep(cycleDelay)
 			continue
 		}
@@ -721,9 +756,7 @@ func runAsset(ctx context.Context, asset string) {
 		}
 
 		// 2) Dynamic bankroll sizing & equal split
-		//log.Printf("[%s] BEFORE Kraken GetBalance(ZUSD)", asset)
 		freeUSD, err := kraken.GetBalance("ZUSD")
-		//log.Printf("[%s] AFTER Kraken GetBalance(ZUSD): freeUSD=%v err=%v", asset, freeUSD, err)
 		if err != nil {
 			notify.Send(fmt.Sprintf("[%s] balance fetch failed: %v", asset, err))
 			log.Printf("[%s] ERROR fetching ZUSD balance: %v", asset, err)
@@ -731,21 +764,21 @@ func runAsset(ctx context.Context, asset string) {
 			continue
 		}
 		usable := freeUSD - cfg.WithdrawReserve
-		log.Printf("[BANKROLL][%s] freeUSD=%.2f withdrawReserve=%.2f usable=%.2f", asset, freeUSD, cfg.WithdrawReserve, usable)
-		if usable <= 0 {
-			notify.Send(fmt.Sprintf("[%s] no usable USD (reserve too high): %.2f", asset, usable))
-			log.Printf("[%s] no usable USD, skipping grid", asset)
+		basePerAsset := usable / float64(len(cfg.Assets))
+		stateMu.Lock()
+		extraAlloc := state.AssetUSDReserve[asset]
+		// consume any extra for this cycle
+		state.AssetUSDReserve[asset] = 0
+		_ = saveStateUnlocked(state)
+		stateMu.Unlock()
+		totalAlloc := basePerAsset + extraAlloc
+		log.Printf("[BANKROLL][%s] freeUSD=%.2f reserve=%.2f usable=%.2f baseAlloc=%.2f extraAlloc=%.2f totalAlloc=%.2f", asset, freeUSD, cfg.WithdrawReserve, usable, basePerAsset, extraAlloc, totalAlloc)
+		if totalAlloc <= 0 {
+			notify.Send(fmt.Sprintf("[%s] no usable USD, skipping grid: %.2f", asset, totalAlloc))
 			time.Sleep(cycleDelay)
 			continue
 		}
-		usdAlloc := usable / float64(len(cfg.Assets)) // base split
-		stateMu.Lock()
-		if extra, ok := state.AssetUSDReserve[asset]; ok {
-			usdAlloc += extra
-			state.AssetUSDReserve[asset] = 0 // consume it this cycle
-		}
-		_ = saveStateUnlocked(state)
-		stateMu.Unlock()
+		usdAlloc := totalAlloc
 
 		// ——— Order-book imbalance tertiary filter ———
 		bids, asks, err := kraken.GetOrderBook(asset, 10)
