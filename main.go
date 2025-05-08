@@ -544,31 +544,48 @@ func main() {
 	wg.Wait()
 }
 
-// fetchHistory returns the last `bars` 5‑minute closes and volumes for `asset`.
+// fetchHistory returns the last `bars` 5-minute closes and volumes for `asset`,
+// paging through Kraken’s 720-bar limit by repeatedly calling GetOHLC.
 func fetchHistory(asset string, bars int) (prices, vols []float64, err error) {
-	if bars <= 0 {
-		return nil, nil, fmt.Errorf("invalid bars %d", bars)
-	}
-	since := time.Now().Add(-time.Duration(bars*5) * time.Minute).Unix()
+	var allRows [][]float64
+	// start from now
+	since := time.Now().Unix()
 
-	// Kraken OHLC: [time,open,high,low,close,vwap,volume,count]
-	rows, err := kraken.GetOHLC(asset, 5, since)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(rows) < bars {
-		return nil, nil, fmt.Errorf("only %d bars returned, need %d", len(rows), bars)
+	// Loop until we have enough bars or no more data
+	for len(allRows) < bars {
+		rows, err := kraken.GetOHLC(asset, 5, since)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		// prepend older rows
+		allRows = append(rows, allRows...)
+		// move the cursor back to just before our oldest bar
+		oldest := int64(rows[0][0])
+		since = oldest - 1
+
+		// Kraken caps at 720 bars—if we got fewer, there’s no more history
+		if len(rows) < 720 {
+			break
+		}
 	}
 
+	if len(allRows) < bars {
+		return nil, nil, fmt.Errorf("only %d bars returned, need %d", len(allRows), bars)
+	}
+
+	// trim to exactly the last `bars` bars
+	start := len(allRows) - bars
 	prices = make([]float64, bars)
 	vols = make([]float64, bars)
-	start := len(rows) - bars
 	for i := 0; i < bars; i++ {
-		r := rows[start+i]
-		prices[i] = r[3] // close (index 3 in our 4‑col slice)
-		vols[i] = r[4]   // r[4] is zero now; adjust when GetOHLC keeps vol
+		r := allRows[start+i]
+		prices[i] = r[3] // close
+		vols[i] = r[4]   // volume (as Kraken returns it)
 	}
-	return
+	return prices, vols, nil
 }
 
 // runAsset: endless snowball cycles
