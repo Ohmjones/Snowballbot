@@ -595,7 +595,8 @@ func runAsset(ctx context.Context, asset string) {
 	warm := int(float64(cfg.BaseMALookback)*(1+maxVolF)) + cfg.ATRLookback
 
 	//log.Printf("[%s] ▶ bootstrap: calling fetchHistory(asset=%q, warm=%d)", asset, asset, warm)
-	prices, vols, err := fetchHistory(asset, warm)
+	bootstrapBars := 7 * 24 * 60 / 5
+	prices, vols, err := fetchHistory(asset, bootstrapBars)
 	if err != nil {
 		log.Printf("[%s] ❌ fetchHistory error: %v", asset, err)
 		return
@@ -608,7 +609,7 @@ func runAsset(ctx context.Context, asset string) {
 	{
 		closes := state.PriceHistory[asset]
 		hist := make([]float64, 0, historyLen)
-		period := 14
+		period := bootstrapBars
 		// build initial RSI history from the most recent bars
 		for i := period; i < len(closes); i++ {
 			window := closes[i-period : i]  // last `period` closes
