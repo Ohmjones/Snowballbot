@@ -1,0 +1,19 @@
+body {
+    background-color: #111;
+    color: #eee;
+}
+
+canvas {
+    width: 100% !important;
+    height: 300px !important;
+}
+
+.card {
+    background-color: #1b1c1d !important;
+    box-shadow: 0 0 20px rgba(0,0,0,0.3) !important;
+}
+
+.ui.buttons .button {
+    background-color: #444;
+    color: white;
+}
