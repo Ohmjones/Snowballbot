@@ -96,8 +96,11 @@ var (
 		vwapCycles  int
 		vwapFills   int
 	}
-	rsiHistory = make(map[string][]float64)
-	historyLen = 100 // Keep the last 100 RSI values per asset
+	rsiHistory    = make(map[string][]float64)
+	historyLen    = 100 // Keep the last 100 RSI values per asset
+	slopeHistory  = make(map[string][]float64)
+	momentumShort = 5
+	momentumLong  = 15
 )
 
 // global price cache, updated in batch
@@ -783,51 +786,79 @@ func runAsset(ctx context.Context, asset string) {
 		// ── DYNAMIC RSI GATE via 20th percentile ──────────────────────────────
 		gate := percentile(rsiHistory[asset], 20) // dynamically finds sweet spot
 		log.Printf("[%s] dynamic RSI gate (20th pct) = %.2f", asset, gate)
-
 		if rsi > gate {
 			log.Printf("[%s] RSI %.2f > gate %.2f (adaptive) – skip cycle", asset, rsi, gate)
 			time.Sleep(cycleDelay)
 			continue
 		}
 
-		// 1d) Trend filter ────────────────────────────────────────────────────────────
-		// Dynamically size the MA look‑back by market energy (volFactor):
-		maLB := int(float64(cfg.BaseMALookback) * (1.0 + volFactor))
+		// ── 1d) Multi-TF + Adaptive Trend Filter ───────────────────────────────
+		// 1d-i) 15-minute down-leg guard
+		{
+			since15 := time.Now().Add(-30 * time.Minute).Unix()
+			bars15, err := kraken.GetOHLC(asset, 15, since15)
+			if err != nil || len(bars15) < 2 {
+				log.Printf("[%s] ERROR fetching 15m OHLC: %v", asset, err)
+				time.Sleep(cycleDelay)
+				continue
+			}
+			c0 := bars15[len(bars15)-1][3]
+			c1 := bars15[len(bars15)-2][3]
+			if (c0-c1)/c1 < 0 {
+				log.Printf("[%s] 15m downtrend detected (%.5f) – skip", asset, (c0-c1)/c1)
+				time.Sleep(cycleDelay)
+				continue
+			}
+		}
+
+		// 1d-ii) 5-minute MA slope + adaptive threshold + EMA momentum
+		maLB := int(float64(cfg.BaseMALookback) * (1 + volFactor))
 		if maLB < 2 {
 			maLB = 2
 		}
-		lookbackBars := maLB + 10 // +10 so we can compare the slope
-		since := time.Now().Add(-time.Duration(lookbackBars*5) * time.Minute).Unix()
-
-		ohlcTrend, err := kraken.GetOHLC(asset, 5, since) // 5‑minute candles
-		if err != nil {
-			notify.Send(fmt.Sprintf("[%s] trend OHLC failed: %v", asset, err))
+		lookback := maLB + 10
+		since5 := time.Now().Add(-time.Duration(lookback*5) * time.Minute).Unix()
+		ohlc5, err := kraken.GetOHLC(asset, 5, since5)
+		if err != nil || len(ohlc5) < lookback {
+			log.Printf("[%s] insufficient 5m bars (%d/%d) – skip", asset, len(ohlc5), lookback)
 			time.Sleep(cycleDelay)
 			continue
 		}
-		if len(ohlcTrend) < lookbackBars {
-			log.Printf("[%s] only %d bars (need %d) – skip", asset, len(ohlcTrend), lookbackBars)
-			time.Sleep(cycleDelay)
-			continue
-		}
-
 		// extract closes
-		prices := make([]float64, len(ohlcTrend))
-		for i, bar := range ohlcTrend {
-			prices[i] = bar[3] // close price is at index 3
+		prices5 := make([]float64, len(ohlc5))
+		for i, b := range ohlc5 {
+			prices5[i] = b[3]
 		}
 
-		// MA and slope check
-		ma := movingAverage(prices[len(prices)-maLB:], maLB)
-		prevMA := movingAverage(prices[len(prices)-maLB-1:len(prices)-1], maLB)
-		// after (allow small dips up to 0.05% before skipping):
-		slopePct := (ma - prevMA) / prevMA
-		// ── DEBUG slopePct ─────────────────────────────────────────────────
-		log.Printf("[SLOPE][%s] slopePct=%.5f (threshold=–0.0005)", asset, slopePct)
-		if slopePct < -0.0005 { // only skip on >0.05% down‑trend
-			log.Printf("[SLOPE][%s] MA drop too steep (%.4f%%) – skip", asset, slopePct*100)
+		// a) compute MA slopePct
+		maCur := movingAverage(prices5[len(prices5)-maLB:], maLB)
+		maPrev := movingAverage(prices5[len(prices5)-maLB-1:len(prices5)-1], maLB)
+		slopePct := (maCur - maPrev) / maPrev
+
+		// b) dynamic slope threshold (10th percentile of recent slopes)
+		h := slopeHistory[asset]
+		h = append(h, slopePct)
+		if len(h) > historyLen {
+			h = h[len(h)-historyLen:]
+		}
+		slopeHistory[asset] = h
+		th := percentile(h, 10)
+		log.Printf("[%s] slope=%.5f pct10=%.5f", asset, slopePct, th)
+		if slopePct < th {
+			log.Printf("[%s] slope %.5f < thresh %.5f – skip", asset, slopePct, th)
 			time.Sleep(cycleDelay)
 			continue
+		}
+
+		// c) EMA momentum filter: require EMA(5) ≥ EMA(15)
+		if len(prices5) >= momentumLong {
+			emaS := computeEMA(prices5[len(prices5)-momentumShort:], momentumShort)
+			emaL := computeEMA(prices5[len(prices5)-momentumLong:], momentumLong)
+			if emaS < emaL {
+				log.Printf("[%s] EMA momentum down (%.4f<%.4f) – skip", asset, emaS, emaL)
+				time.Sleep(cycleDelay)
+				continue
+			}
 		}
 
 		// 2) Dynamic bankroll sizing & equal split
