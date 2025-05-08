@@ -633,16 +633,21 @@ func fetchHistory(asset string, bars int) (prices, vols []float64, err error) {
 	return prices, vols, nil
 }
 
-// computeEMA computes the Exponential Moving Average of `series` over `period` bars.
-func computeEMA(series []float64, period int) float64 {
-	if len(series) < period || period <= 0 {
-		return 0
+// computeEMA computes the final EMA of xs (len(xs) == period), using simple smoothing α = 2/(period+1)
+func computeEMA(xs []float64, period int) float64 {
+	if len(xs) < period {
+		return math.NaN()
 	}
-	k := 2.0 / (float64(period) + 1.0)
-	// seed the EMA with the first element
-	ema := series[0]
-	for _, v := range series[1:] {
-		ema = v*k + ema*(1.0-k)
+	// start with a simple SMA over the first period
+	sum := 0.0
+	for _, v := range xs[:period] {
+		sum += v
+	}
+	ema := sum / float64(period)
+	alpha := 2.0 / float64(period+1)
+	// then roll forward
+	for _, v := range xs[period:] {
+		ema = alpha*v + (1-alpha)*ema
 	}
 	return ema
 }
@@ -808,19 +813,20 @@ func runAsset(ctx context.Context, asset string) {
 
 		// ── 1d) Multi-TF + Adaptive Trend Filter ───────────────────────────────
 
-		// 1d-i) 15-minute down-leg guard
+		// 1d-i) 30-minute down-leg guard
 		{
-			since15 := time.Now().Add(-30 * time.Minute).Unix()
-			b15, err := kraken.GetOHLC(asset, 15, since15)
-			if err != nil || len(b15) < 2 {
-				log.Printf("[%s] ERROR fetching 15m OHLC: %v", asset, err)
+			since30 := time.Now().Add(-2 * 30 * time.Minute).Unix() // fetch last 2×30m bars
+			bars30, err30 := kraken.GetOHLC(asset, 30, since30)
+			if err30 != nil || len(bars30) < 2 {
+				log.Printf("[%s] ERROR fetching 30m OHLC: %v", asset, err30)
 				time.Sleep(cycleDelay)
 				continue
 			}
-			c0 := b15[len(b15)-1][3]
-			c1 := b15[len(b15)-2][3]
-			if (c0-c1)/c1 < 0 {
-				log.Printf("[%s] 15m downtrend (%.5f) – skip", asset, (c0-c1)/c1)
+			closeNew := bars30[len(bars30)-1][3]
+			closeOld := bars30[len(bars30)-2][3]
+			pct := (closeNew - closeOld) / closeOld
+			if pct < 0 {
+				log.Printf("[%s] 30m downtrend (%.5f) – skip", asset, pct)
 				time.Sleep(cycleDelay)
 				continue
 			}
