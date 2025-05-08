@@ -469,17 +469,28 @@ func main() {
 		}
 	}()
 
-	// 4) ONE-TIME BaselineUSD init (before runners) – run in background so we don't block startup
 	go func() {
+		var shouldFetch bool
 		stateMu.Lock()
-		defer stateMu.Unlock()
-		if state.BaselineUSD == 0 {
+		shouldFetch = state.BaselineUSD == 0
+		stateMu.Unlock()
+
+		if shouldFetch {
 			log.Printf("[BASELINE] fetching initial ZUSD balance…")
-			if freeUSD, err := kraken.GetBalance("ZUSD"); err != nil {
+			freeUSD, err := kraken.GetBalance("ZUSD")
+			if err != nil {
 				log.Printf("[BASELINE] error fetching ZUSD balance: %v", err)
+				return
+			}
+
+			stateMu.Lock()
+			state.BaselineUSD = freeUSD
+			err = SaveState(state)
+			stateMu.Unlock()
+
+			if err != nil {
+				log.Printf("[BASELINE] error saving state: %v", err)
 			} else {
-				state.BaselineUSD = freeUSD
-				_ = SaveState(state)
 				log.Printf("[BASELINE] got ZUSD balance = %.2f", freeUSD)
 			}
 		}
