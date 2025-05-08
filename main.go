@@ -101,9 +101,7 @@ var (
 var priceCache = struct {
 	sync.RWMutex
 	data map[string]float64
-}{
-	data: make(map[string]float64),
-}
+}{data: make(map[string]float64)}
 
 func recoverOpenPositions(assets []string) {
 	log.Println("[BOOT] recovering open positions from Kraken…")
@@ -255,6 +253,9 @@ func main() {
 		log.Fatalf("invalid config.json: %v", err)
 	}
 	log.Printf("[MAIN] loaded config: assets=%v  gridLevels=%d", cfg.Assets, cfg.GridLevels)
+	// Start Dashboard
+	log.Println("[BOOT] launching dashboard…")
+	go startWebServer()
 
 	// 1a) Default RSI gate to 50 if unset
 	if cfg.RSIGate == 0 {
@@ -278,7 +279,6 @@ func main() {
 
 	// 2) Seed in-memory vars from loaded state
 	openOrders = state.OpenOrders
-	// ── NEW: reconcile with Kraken on startup ──
 	log.Printf("[MAIN] reconciling %d persisted orders with Kraken…", len(openOrders))
 	var reconciled []string
 	for _, oid := range openOrders {
@@ -319,17 +319,14 @@ func main() {
 	if cycleState == nil {
 		cycleState = make(map[string]string)
 	}
-
-	/* ───────────────── NEW ───────────────── */
 	if state.PriceHistory == nil {
 		state.PriceHistory = make(map[string][]float64)
 	}
 	if state.VolHistory == nil {
 		state.VolHistory = make(map[string][]float64)
 	}
-	/* ───────────── END NEW ──────────────── */
 
-	/* (unchanged) hydrate profits → profits map */
+	/* hydrate profits → profits map */
 	profits = make(map[string]float64, len(state.ProfitCumulative))
 	for asset, p := range state.ProfitCumulative {
 		profits[asset] = p
@@ -342,7 +339,7 @@ func main() {
 		log.Fatalf("cannot load Kraken AssetPairs: %v", err)
 	}
 
-	// 1b) Recover Open Positions
+	// Recover Open Positions
 	recoverOpenPositions(cfg.Assets)
 
 	// automatically populate pricePrecision from Kraken
@@ -473,10 +470,6 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
 	go func() { <-sig; cancel() }()
-
-	// 5a) Start Webserver localhost:8080
-	log.Println("[BOOT] launching dashboard…")
-	go startWebServer()
 
 	// 6) Launch asset runners + loops
 	var wg sync.WaitGroup
