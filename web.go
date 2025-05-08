@@ -51,7 +51,7 @@ func startWebServer() {
 	mux.HandleFunc("/api/config", serveConfig)
 
 	srv := &http.Server{
-		Addr:         "127.0.0.1:8080",
+		Addr:         "localhost:8080",
 		Handler:      mux,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,

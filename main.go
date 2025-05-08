@@ -253,9 +253,6 @@ func main() {
 		log.Fatalf("invalid config.json: %v", err)
 	}
 	log.Printf("[MAIN] loaded config: assets=%v  gridLevels=%d", cfg.Assets, cfg.GridLevels)
-	// Start Dashboard
-	log.Println("[BOOT] launching dashboard…")
-	go startWebServer()
 
 	// 1a) Default RSI gate to 50 if unset
 	if cfg.RSIGate == 0 {
@@ -356,8 +353,7 @@ func main() {
 		log.Printf("Set %s price precision = %d", asset, decs)
 	}
 
-	// ✅ Dashboard init moved *after* pricePrecision + pair validation
-	log.Println("[BOOT] launching dashboard…")
+	log.Println("[BOOT] launching dashboard…") // ✅ now actually reached
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -366,7 +362,7 @@ func main() {
 		}()
 		startWebServer()
 	}()
-
+	
 	// refresh once every 24h in background
 	go func() {
 		t := time.NewTicker(24 * time.Hour)
