@@ -342,16 +342,30 @@ func main() {
 	// Recover Open Positions
 	recoverOpenPositions(cfg.Assets)
 
-	// automatically populate pricePrecision from Kraken
+	// validate and populate pricePrecision from Kraken
 	for _, asset := range cfg.Assets {
-		pair := kraken.pairMap[asset] // e.g. "ETHUSD", "SOLUSD"
-		if decs, err := fetchPairDecimals(pair); err == nil {
-			pricePrecision[asset] = decs
-			log.Printf("Set %s price precision = %d", asset, decs)
-		} else {
-			log.Printf("Warning: could not fetch precision for %s: %v", asset, err)
+		pair, ok := kraken.pairMap[asset]
+		if !ok || pair == "" {
+			log.Fatalf("fatal: no Kraken pair mapping found for asset %s", asset)
 		}
+		decs, err := fetchPairDecimals(pair)
+		if err != nil {
+			log.Fatalf("fatal: failed to fetch decimals for pair %s: %v", pair, err)
+		}
+		pricePrecision[asset] = decs
+		log.Printf("Set %s price precision = %d", asset, decs)
 	}
+
+	// ✅ Dashboard init moved *after* pricePrecision + pair validation
+	log.Println("[BOOT] launching dashboard…")
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[WEB ERROR] panic in dashboard server: %v", r)
+			}
+		}()
+		startWebServer()
+	}()
 
 	// refresh once every 24h in background
 	go func() {
