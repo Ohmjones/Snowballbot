@@ -915,13 +915,14 @@ func runAsset(ctx context.Context, asset string) {
 		}
 
 		if len(oids) == 0 {
-			log.Printf("[%s] all grid legs failed – skip", asset)
-			time.Sleep(cycleDelay)
+			notify.Send(fmt.Sprintf("[%s] all grid legs failed; retry in 1 minute", asset))
+			time.Sleep(1 * time.Minute)
+			continue
 		}
+
 		firstOID := oids[0] // ← store once; slice may shrink later
 
 		// 5) Monitor fills + stale cancellations
-		startT := make(map[string]time.Time, len(oids))
 		prevVol := make(map[string]float64, len(oids))
 		prevNot := make(map[string]float64, len(oids))
 		// collect orders that fill normally so we can prune them later
@@ -1011,23 +1012,11 @@ func runAsset(ctx context.Context, asset string) {
 			oids = next
 		}
 		tick.Stop()
-		// ── prune normally‐filled orders from state.OpenOrders ──
-		if len(closedOIDs) > 0 {
-			stateMu.Lock()
-			for _, oid := range closedOIDs {
-				state.OpenOrders = removeOrder(state.OpenOrders, oid)
-			}
-			if err := saveStateUnlocked(state); err != nil {
-				log.Printf("warning: failed to save state pruning closed orders: %v", err)
-			}
-			stateMu.Unlock()
-		}
 
-		// ——— Fill-rate instrumentation ———
-		// did our worst-leg order (leg 0) actually fill?
+		// ✅ Immediately track fill stats before any state pruning or disk writes
 		didFill0 := false
 		for _, oid := range closedOIDs {
-			if oid == firstOID { // ← was oids[0]
+			if oid == firstOID {
 				didFill0 = true
 				break
 			}
@@ -1054,7 +1043,18 @@ func runAsset(ctx context.Context, asset string) {
 			stats.vwapCycles,
 			fillRate,
 		)
-		// ————————————————————————
+
+		// 🔻 THEN prune closed orders safely
+		if len(closedOIDs) > 0 {
+			stateMu.Lock()
+			for _, oid := range closedOIDs {
+				state.OpenOrders = removeOrder(state.OpenOrders, oid)
+			}
+			if err := saveStateUnlocked(state); err != nil {
+				log.Printf("warning: failed to save state pruning closed orders: %v", err)
+			}
+			stateMu.Unlock()
+		}
 
 		// 6) Weighted-avg entry & persist state
 		var cost, vol float64
@@ -1157,7 +1157,7 @@ func runAsset(ctx context.Context, asset string) {
 				// 1 min poll to keep existing grid “live”
 				go func() {
 					if p, err := kraken.GetTickerMid(asset); err == nil {
-						log.Printf("[%s] pulse price %.4f", asset, p)
+						//log.Printf("[%s] pulse price %.4f", asset, p)
 					}
 				}()
 			case <-slow.C:
