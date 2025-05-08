@@ -475,6 +475,7 @@ func main() {
 	go func() { <-sig; cancel() }()
 
 	// 5a) Start Webserver localhost:8080
+	log.Println("[BOOT] launching dashboard…")
 	go startWebServer()
 
 	// 6) Launch asset runners + loops
