@@ -361,7 +361,7 @@ func main() {
 			log.Fatalf("fatal: failed to fetch decimals for pair %s: %v", pair, err)
 		}
 		pricePrecision[asset] = decs
-		log.Printf("Set %s price precision = %d", asset, decs)
+		//log.Printf("Set %s price precision = %d", asset, decs)
 	}
 
 	log.Println("[BOOT] launching dashboard…") // ✅ now actually reached
@@ -556,7 +556,7 @@ func fetchHistory(asset string, bars int) (prices, vols []float64, err error) {
 
 // runAsset: endless snowball cycles
 func runAsset(ctx context.Context, asset string) {
-	log.Printf("[%s] ▶ runAsset started", asset)
+	//log.Printf("[%s] ▶ runAsset started", asset)
 	cycleDelay := 5 * time.Minute
 
 	// declare once so the whole function sees them
