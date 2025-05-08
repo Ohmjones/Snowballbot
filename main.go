@@ -545,45 +545,87 @@ func main() {
 }
 
 // fetchHistory returns the last `bars` 5-minute closes and volumes for `asset`,
-// paging through Kraken’s 720-bar limit by repeatedly calling GetOHLC.
+// paging through Kraken’s 720-bar cap via the `last` parameter.
 func fetchHistory(asset string, bars int) (prices, vols []float64, err error) {
-	var allRows [][]float64
-	// start from now
-	since := time.Now().Unix()
+	pair, err := kraken.krakenPair(asset)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	// Loop until we have enough bars or no more data
-	for len(allRows) < bars {
-		rows, err := kraken.GetOHLC(asset, 5, since)
+	var allRows [][]float64
+	// initial since = now - enough time to cover `bars` worth of 5-min candles
+	since := time.Now().Add(-time.Duration(bars*5) * time.Minute).Unix()
+
+	for {
+		// build request
+		vals := url.Values{
+			"pair":     {pair},
+			"interval": {"5"},
+			"since":    {strconv.FormatInt(since, 10)},
+		}
+
+		// raw call
+		raw, err := kraken.callPublic("/0/public/OHLC", vals)
 		if err != nil {
 			return nil, nil, err
 		}
-		if len(rows) == 0 {
-			break
-		}
-		// prepend older rows
-		allRows = append(rows, allRows...)
-		// move the cursor back to just before our oldest bar
-		oldest := int64(rows[0][0])
-		since = oldest - 1
 
-		// Kraken caps at 720 bars—if we got fewer, there’s no more history
-		if len(rows) < 720 {
+		// parse envelope including `last`
+		var env struct {
+			Error  []interface{}              `json:"error"`
+			Result map[string]json.RawMessage `json:"result"`
+			Last   int64                      `json:"last"`
+		}
+		if err := json.Unmarshal(raw, &env); err != nil {
+			return nil, nil, err
+		}
+		if len(env.Error) > 0 {
+			return nil, nil, fmt.Errorf("OHLC error: %v", env.Error)
+		}
+
+		// extract bars for our pair
+		barsRaw, ok := env.Result[pair]
+		if !ok {
+			return nil, nil, fmt.Errorf("no OHLC data for %s", pair)
+		}
+		var rows [][]interface{}
+		if err := json.Unmarshal(barsRaw, &rows); err != nil {
+			return nil, nil, err
+		}
+
+		// convert to float and prepend to allRows
+		chunk := make([][]float64, len(rows))
+		for i, r := range rows {
+			f := make([]float64, 5)
+			for j := 1; j <= 4; j++ {
+				if s, ok := r[j].(string); ok {
+					f[j-1], _ = strconv.ParseFloat(s, 64)
+				}
+			}
+			chunk[i] = f
+		}
+		allRows = append(allRows, chunk...) // chronological
+
+		// if we have enough, or got fewer than 720, stop paging
+		if len(allRows) >= bars || len(rows) < 720 {
 			break
 		}
+		// otherwise advance the cursor and loop
+		since = env.Last
 	}
 
 	if len(allRows) < bars {
 		return nil, nil, fmt.Errorf("only %d bars returned, need %d", len(allRows), bars)
 	}
 
-	// trim to exactly the last `bars` bars
+	// trim to the most recent `bars`
 	start := len(allRows) - bars
 	prices = make([]float64, bars)
 	vols = make([]float64, bars)
 	for i := 0; i < bars; i++ {
-		r := allRows[start+i]
-		prices[i] = r[3] // close
-		vols[i] = r[4]   // volume (as Kraken returns it)
+		row := allRows[start+i]
+		prices[i] = row[3] // close
+		vols[i] = row[4]   // volume
 	}
 	return prices, vols, nil
 }
