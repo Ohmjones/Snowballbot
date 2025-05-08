@@ -2,29 +2,65 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <title>Snowballin' Dashboard</title>
+    <title>Snowballin' Performance Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <!-- Semantic UI + Chart.js -->
+    <!-- Semantic UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css" />
+    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <!-- Optional: Pull in external style.css -->
-    <link rel="stylesheet" href="style.css" />
+    <style>
+        body {
+            background-color: #111;
+            color: #eee;
+            font-family: 'Segoe UI', sans-serif;
+            padding: 2rem;
+        }
+
+        .ui.container {
+            max-width: 1400px;
+            margin: auto;
+        }
+
+        .ui.segment {
+            background: #222 !important;
+            color: #eee;
+            border: none !important;
+        }
+
+        .chart-block {
+            margin-bottom: 3rem;
+        }
+
+        .chart-block h3 {
+            text-align: center;
+            color: #ccc;
+            margin-bottom: 1rem;
+        }
+
+        canvas {
+            background-color: #1a1a1a;
+            border-radius: 10px;
+            padding: 1rem;
+        }
+    </style>
 </head>
 <body>
-<div class="ui container" style="margin-top: 2em;">
-    <h2 class="ui center aligned header">📈 Snowballin' Performance Dashboard</h2>
+<div class="ui container">
+    <h2 class="ui center aligned header" style="color:#eee">
+        📊 Snowballin' Performance Dashboard
+    </h2>
 
-    <div class="ui center aligned segment">
+    <div class="ui center aligned inverted segment">
         <div class="ui buttons">
-            <button class="ui button" onclick="setRange('7d')">7d</button>
-            <button class="ui button" onclick="setRange('30d')">30d</button>
-            <button class="ui button" onclick="setRange('lifetime')">Lifetime</button>
+            <button class="ui inverted grey button" onclick="setRange('7d')">7d</button>
+            <button class="ui inverted grey button" onclick="setRange('30d')">30d</button>
+            <button class="ui inverted grey button" onclick="setRange('lifetime')">Lifetime</button>
         </div>
     </div>
 
-    <div id="charts" class="ui three stackable cards"></div>
+    <div id="charts" class="ui grid stackable"></div>
 </div>
 
 <script src="dashboard.js"></script>
