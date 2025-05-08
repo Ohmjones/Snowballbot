@@ -670,13 +670,12 @@ func runAsset(ctx context.Context, asset string) {
 		hist := make([]float64, 0, historyLen)
 		period := bootstrapBars
 		// build initial RSI history from the most recent bars
-		for i := period; i < len(closes); i++ {
-			window := closes[i-period : i]  // last `period` closes
-			r := computeRSI(window, period) // reuse your existing RSI fn
+		// Walk backward from the latest bar
+		n := len(closes)
+		for i := n; i >= period+1 && len(hist) < historyLen; i-- {
+			window := closes[i-period : i]
+			r := computeRSI(window, period)
 			hist = append(hist, r)
-			if len(hist) >= historyLen {
-				break
-			}
 		}
 		rsiHistory[asset] = hist
 	}
